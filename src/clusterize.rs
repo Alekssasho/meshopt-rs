@@ -16,25 +16,36 @@ pub type Meshlet = ffi::meshopt_Meshlet;
 /// Note: `max_vertices` must be <= 64 and `max_triangles` must be <= 126
 pub fn build_meshlets(
     indices: &[u32],
-    vertex_count: usize,
+    vertices: &VertexDataAdapter,
     max_vertices: usize,
     max_triangles: usize,
-) -> Vec<Meshlet> {
+    cone_weight: f32,
+) -> (Vec<Meshlet>, Vec<u32>, Vec<u8>) {
     let meshlet_count =
         unsafe { ffi::meshopt_buildMeshletsBound(indices.len(), max_vertices, max_triangles) };
     let mut meshlets: Vec<Meshlet> = vec![unsafe { ::std::mem::zeroed() }; meshlet_count];
+    let mut meshlet_vertices: Vec<u32> = vec![unsafe { ::std::mem::zeroed() }; meshlet_count * max_vertices];
+    let mut meshlet_indices: Vec<u8> = vec![unsafe { ::std::mem::zeroed() }; meshlet_count * max_triangles * 3];
     let count = unsafe {
         ffi::meshopt_buildMeshlets(
             meshlets.as_mut_ptr(),
+            meshlet_vertices.as_mut_ptr(),
+            meshlet_indices.as_mut_ptr(),
             indices.as_ptr(),
             indices.len(),
-            vertex_count,
+            vertices.pos_ptr(),
+            vertices.vertex_count,
+            vertices.vertex_stride,
             max_vertices,
             max_triangles,
+            cone_weight
         )
     };
     meshlets.resize(count, unsafe { ::std::mem::zeroed() });
-    meshlets
+    let last_meshlet = meshlets.last().unwrap();
+    meshlet_vertices.resize((last_meshlet.vertex_offset + last_meshlet.vertex_count) as usize, unsafe { ::std::mem::zeroed() });
+    meshlet_indices.resize((last_meshlet.triangle_offset + (last_meshlet.triangle_count * 3)) as usize, unsafe { ::std::mem::zeroed() });
+    (meshlets, meshlet_vertices, meshlet_indices)
 }
 
 /// Creates bounding volumes that can be used for frustum, backface and occlusion culling.
@@ -105,13 +116,15 @@ pub fn compute_cluster_bounds_decoder<T: DecodePosition>(
     }
 }
 
-pub fn compute_meshlet_bounds(meshlet: &Meshlet, vertices: &VertexDataAdapter) -> Bounds {
+pub fn compute_meshlet_bounds(meshlet: &Meshlet, meshlet_vertices: &[u32], meshlet_triangles: &[u8], vertices: &VertexDataAdapter) -> Bounds {
     let vertex_data = vertices.reader.get_ref();
     let vertex_data = vertex_data.as_ptr() as *const u8;
     let positions = unsafe { vertex_data.add(vertices.position_offset) };
     unsafe {
         ffi::meshopt_computeMeshletBounds(
-            meshlet,
+            meshlet_vertices.as_ptr().add(meshlet.vertex_offset as usize),
+            meshlet_triangles.as_ptr().add(meshlet.triangle_offset as usize),
+            meshlet.triangle_count as usize,
             positions as *const f32,
             vertices.vertex_count,
             vertices.vertex_stride,
@@ -119,21 +132,21 @@ pub fn compute_meshlet_bounds(meshlet: &Meshlet, vertices: &VertexDataAdapter) -
     }
 }
 
-pub fn compute_meshlet_bounds_decoder<T: DecodePosition>(
-    meshlet: &Meshlet,
-    vertices: &[T],
-) -> Bounds {
-    let vertices = vertices
-        .iter()
-        .map(|vertex| vertex.decode_position())
-        .collect::<Vec<[f32; 3]>>();
-    let positions = vertices.as_ptr() as *const f32;
-    unsafe {
-        ffi::meshopt_computeMeshletBounds(
-            meshlet,
-            positions,
-            vertices.len() * 3,
-            ::std::mem::size_of::<f32>() * 3,
-        )
-    }
-}
+// pub fn compute_meshlet_bounds_decoder<T: DecodePosition>(
+//     meshlet: &Meshlet,
+//     vertices: &[T],
+// ) -> Bounds {
+//     let vertices = vertices
+//         .iter()
+//         .map(|vertex| vertex.decode_position())
+//         .collect::<Vec<[f32; 3]>>();
+//     let positions = vertices.as_ptr() as *const f32;
+//     unsafe {
+//         ffi::meshopt_computeMeshletBounds(
+//             meshlet,
+//             positions,
+//             vertices.len() * 3,
+//             ::std::mem::size_of::<f32>() * 3,
+//         )
+//     }
+// }

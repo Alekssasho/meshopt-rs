@@ -180,7 +180,7 @@ impl<'a> VertexDataAdapter<'a> {
             let vertex_offset = vertex * self.vertex_stride;
             self.reader
                 .set_position((vertex_offset + self.position_offset) as u64);
-            let mut scratch: [u8; 12] = unsafe { std::mem::uninitialized() };
+            let mut scratch: [u8; 12] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
             self.reader.read_exact(&mut scratch)?;
             let position =
                 unsafe { std::slice::from_raw_parts(scratch.as_ptr() as *const f32, 12) };
